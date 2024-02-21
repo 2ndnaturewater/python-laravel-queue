@@ -3,6 +3,7 @@ from uuid import uuid4, UUID
 import phpserialize
 import json
 import warnings
+from datetime import datetime
 
 @dataclass
 class Job:
@@ -21,12 +22,14 @@ class Job:
     command_name: str = None
     command: dict = None
     __existing_job: bool = False
+    __raw_record: dict = None
     
     @classmethod
     def from_psycopg2(cls, record):
         '''
             Creates a Job object from a record returned by psycopg2
         '''
+        raw_record = record
         payload = json.loads(record[0])
         command = cls.__php_serialized_to_dict(payload['data']['command'])
         return cls(
@@ -41,6 +44,7 @@ class Job:
             command_name=payload['data']['commandName'],
             command=command,
             __existing_job=True
+            __raw_record=__raw_record
         )
     @classmethod
     def __php_serialized_to_dict(cls, command: str) -> dict:
@@ -52,19 +56,7 @@ class Job:
         }
         return output
     
-    def fail(self):
-        '''
-            Fails the job
-        '''
-        job = self.__get_job_from_db(self.uuid)
-        if not job:
-            raise ValueError('Job does not exist in the database')
 
-    def __get_job_from_db(self, uuid: UUID):
-        '''
-            Gets the job from the database
-        '''
-        
 
 
 class Queue:
@@ -93,6 +85,7 @@ class Queue:
         select = "SELECT {} FROM {} WHERE queue = '{}'".format(self.payload_column, self.jobs_table, self.queue)
         cursor.execute(select)
         records = cursor.fetchall()
+        cursor.close()
         if records:
             return [Job.from_psycopg2(record) for record in records]
         return None
@@ -108,6 +101,16 @@ class Queue:
             'The dispatch method is not yet implemented. The job will not be dispatched to the queue.',
             UserWarning
         )
+
+    def fail_job(self, job: Job):
+        '''
+            Fails a job in the database queue
+        '''
+        job = self.__get_job_from_db(job.uuid)
+        if not job:
+            raise ValueError('Job does not exist in the database')
+        
+        self.__fail_job_in_db(job)
 
 
     def __connect(self, connection: any) -> any:
@@ -127,3 +130,32 @@ class Queue:
         except:
             raise ValueError('Invalid connection string. Must be in the format: postgresql://user:password@host:5432/db')
     
+    def __get_job_from_db(self, uuid: UUID):
+        '''
+            Gets the job from the database
+        '''
+        cursor = self.connection.cursor()
+        select = "SELECT * FROM {} WHERE uuid = '{}'".format(self.payload_column, self.jobs_table, uuid)
+        cursor.execute(select)
+        record = cursor.fetchone()
+        cursor.close()
+        if record:
+            return Job.from_psycopg2(record)
+        return None
+
+    def __fail_job_in_db(self, job:Job, exception: str = None):
+        '''
+            Fails a job in the database
+        '''
+        cursor = self.connection.cursor()
+        insert = "INSERT INTO {} (connection, queue, payload, exception, failed_at) VALUES ('{}', '{}', '{}', '{}', '{}')".format(
+            self.failed_jobs_table,
+            'database', 
+            self.queue, 
+            job.__raw_record[3], 
+            exception, 
+            datetime.now().isoformat()
+        )
+        cursor.execute(insert)
+        self.connection.commit()
+        cursor.close()
