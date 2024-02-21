@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "laravel-queue"
+name = "laravel_queue"
 dynamic = ["version"]
 authors = [
   { name="2NDNATURE", email="info@2ndnaturewater.com" },
