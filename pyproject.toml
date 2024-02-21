@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "laravel_queue"
+name = "laravel-queue"
 dynamic = ["version"]
 authors = [
   { name="2NDNATURE", email="info@2ndnaturewater.com" },
@@ -23,4 +23,4 @@ dependencies = [
 ]
 
 [tool.hatch.version]
-path = "src/laravel_queue/__about__.py"
+path = "src/laravel-queue/__about__.py"
