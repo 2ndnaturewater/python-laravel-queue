@@ -43,7 +43,7 @@ class Job:
             retry_until=payload['retryUntil'],
             command_name=payload['data']['commandName'],
             command=command,
-            __existing_job=True
+            __existing_job=True,
             __raw_record=__raw_record
         )
     @classmethod
