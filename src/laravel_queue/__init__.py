@@ -21,8 +21,8 @@ class Job:
     sentry_trace_parent_data: str = None
     command_name: str = None
     command: dict = None
-    __existing_job: bool = False
-    __raw_record: dict = None
+    existing_job: bool = False
+    raw_record: dict = None
     
     @classmethod
     def from_psycopg2(cls, record):
@@ -43,8 +43,8 @@ class Job:
             retry_until=payload['retryUntil'],
             command_name=payload['data']['commandName'],
             command=command,
-            __existing_job=True,
-            __raw_record=__raw_record
+            existing_job=True,
+            raw_record=__raw_record
         )
     @classmethod
     def __php_serialized_to_dict(cls, command: str) -> dict:
