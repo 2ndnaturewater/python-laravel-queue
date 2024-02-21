@@ -16,14 +16,14 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-[project.urls]
-Repository = "https://github.com/2ndnaturewater/python-laravel-queue"
-Issues = "https://github.com/2ndnaturewater/python-laravel-queue/issues"
-
 dependencies = [
   "psycopg2",
   "phpserialize"
 ]
+
+[project.urls]
+Repository = "https://github.com/2ndnaturewater/python-laravel-queue"
+Issues = "https://github.com/2ndnaturewater/python-laravel-queue/issues"
 
 [tool.hatch.version]
 path = "src/laravel_queue/__about__.py"
