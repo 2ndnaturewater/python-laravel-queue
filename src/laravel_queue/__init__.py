@@ -44,7 +44,7 @@ class Job:
             command_name=payload['data']['commandName'],
             command=command,
             existing_job=True,
-            raw_record=__raw_record
+            raw_record=raw_record
         )
     @classmethod
     def __php_serialized_to_dict(cls, command: str) -> dict:
