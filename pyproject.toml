@@ -23,4 +23,4 @@ dependencies = [
 ]
 
 [tool.hatch.version]
-path = "src/laravel-queue/__about__.py"
+path = "src/laravel_queue/__about__.py"
