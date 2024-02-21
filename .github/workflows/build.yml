@@ -22,7 +22,6 @@ jobs:
 
       - name: Build
         run: |
-          cd python-laravel-queue
           python -m build
     
       - name: Publish
