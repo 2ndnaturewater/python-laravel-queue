@@ -8,7 +8,7 @@ Currently:
 ### Create a Queue Object
 
 ```
-from laravel-queue import Queue
+from laravel_queue import Queue
 
 connection_string = "postgresql://user:password@host:5432/db"
 queue = Queue(connection_string)
