@@ -5,11 +5,13 @@ import json
 import warnings
 from datetime import datetime
 
+
 @dataclass
 class Job:
     '''
         Job class to represent a job in the database queue
     '''
+    id: int 
     uuid: UUID = uuid4()
     display_name: str = ''
     job: str = ''
@@ -23,16 +25,18 @@ class Job:
     command: dict = None
     existing_job: bool = False
     raw_record: dict = None
+    queue: any = None
     
     @classmethod
-    def from_psycopg2(cls, record):
+    def from_psycopg2(cls, record, queue=None):
         '''
             Creates a Job object from a record returned by psycopg2
         '''
         raw_record = record
-        payload = json.loads(record[0])
+        payload = json.loads(record[1])
         command = cls.__php_serialized_to_dict(payload['data']['command'])
         return cls(
+            id=record[0],
             uuid=payload['uuid'],
             display_name=payload['displayName'],
             job=payload['job'],
@@ -44,7 +48,8 @@ class Job:
             command_name=payload['data']['commandName'],
             command=command,
             existing_job=True,
-            raw_record=raw_record
+            raw_record=raw_record,
+            queue=queue
         )
     @classmethod
     def __php_serialized_to_dict(cls, command: str) -> dict:
@@ -55,6 +60,61 @@ class Job:
             for key, val in command_dict.items()
         }
         return output
+    
+    def run(self, function:any, *args, **kwargs) -> bool:
+        '''
+            Runs the job
+            function: any, the function to run
+            *args: any, the arguments to pass to the function
+            **kwargs: any, the keyword arguments to pass to the function
+
+            Returns True if the job is successful, False if the job fails
+            On fail, fails the job.
+        '''
+        try:
+            function(*args, **kwargs)
+            self.complete()
+            return True
+        except Exception as e:
+            self.fail(str(e))
+            return False
+            
+            
+    
+    def fail(self, exception: str):
+        '''
+            Fails the job, moving the record to the failed_jobs table and completing the job
+
+            exception: str, the exception message to save in the failed_jobs table
+        '''
+        connection = self.queue.connection
+        cursor = connection.cursor()
+        insert = "INSERT INTO {} (connection, queue, payload, exception, failed_at) VALUES ('{}', '{}', '{}', '{}', '{}')".format(
+            self.queue.failed_jobs_table,
+            'database', 
+            self.queue.queue, 
+            self.raw_record[1], 
+            exception, 
+            datetime.now().isoformat()
+        )
+        cursor.execute(insert)
+        connection.commit()
+        cursor.close()
+        self.complete()
+
+    def complete(self):
+        '''
+            Completes the job
+            Removes the job from the jobs table and the queue object
+        '''
+        connection = self.queue.connection
+        cursor = connection.cursor()
+        drop = "DELETE FROM {} WHERE id = {}".format(self.queue.jobs_table, self.id)
+        cursor.execute(drop)
+        connection.commit()
+        cursor.close()
+    
+        self.queue.jobs.remove(self) 
     
 
 
@@ -75,20 +135,21 @@ class Queue:
         self.queue = queue
         self.jobs_table = jobs_table
         self.failed_jobs_table = failed_jobs_table
-        self.payload_column = 'payload'
+        self.jobs = []
 
-    def read(self) :
+    def read(self) -> list:
         '''
             Reads the jobs from the database queue
+            returns a list of jobs
         '''
         cursor = self.connection.cursor()
-        select = "SELECT {} FROM {} WHERE queue = '{}'".format(self.payload_column, self.jobs_table, self.queue)
+        select = "SELECT id, payload FROM {} WHERE queue = '{}'".format(self.jobs_table, self.queue)
         cursor.execute(select)
         records = cursor.fetchall()
         cursor.close()
         if records:
-            return [Job.from_psycopg2(record) for record in records]
-        return None
+            self.jobs = [Job.from_psycopg2(record, queue=self) for record in records]
+        return self.jobs
 
     def dispatch(self, job: Job):
         '''
@@ -102,15 +163,6 @@ class Queue:
             UserWarning
         )
 
-    def fail_job(self, job: Job):
-        '''
-            Fails a job in the database queue
-        '''
-        job = self.__get_job_from_db(job.uuid)
-        if not job:
-            raise ValueError('Job does not exist in the database')
-        
-        self.__fail_job_in_db(job)
 
 
     def __connect(self, connection: any) -> any:
@@ -130,32 +182,3 @@ class Queue:
         except:
             raise ValueError('Invalid connection string. Must be in the format: postgresql://user:password@host:5432/db')
     
-    def __get_job_from_db(self, uuid: UUID):
-        '''
-            Gets the job from the database
-        '''
-        cursor = self.connection.cursor()
-        select = "SELECT * FROM {} WHERE uuid = '{}'".format(self.payload_column, self.jobs_table, uuid)
-        cursor.execute(select)
-        record = cursor.fetchone()
-        cursor.close()
-        if record:
-            return Job.from_psycopg2(record)
-        return None
-
-    def __fail_job_in_db(self, job:Job, exception: str = None):
-        '''
-            Fails a job in the database
-        '''
-        cursor = self.connection.cursor()
-        insert = "INSERT INTO {} (connection, queue, payload, exception, failed_at) VALUES ('{}', '{}', '{}', '{}', '{}')".format(
-            self.failed_jobs_table,
-            'database', 
-            self.queue, 
-            job.__raw_record[3], 
-            exception, 
-            datetime.now().isoformat()
-        )
-        cursor.execute(insert)
-        self.connection.commit()
-        cursor.close()
