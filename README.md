@@ -31,22 +31,25 @@ jobs = queue.jobs  ## List of jobs in queue object
 ### Running Jobs
 ```
 for job in queue.jobs:
-    job.run(function)  ## run any function and pass any args to it
+    job.run(function)  ## run any function
 ```
 function can be any function to run for this job
-any parameters set in laravel will be passed to this function by name:
+
+#### Passing Params
+To pass params in laravel to the python function, specify a `param_map` in the run function.
+
 ```
 # laravel:
 $this->groupId = 12;
 
 # python
-function(groupId = 12)
+def function(group_id):
+    pass
+
+job.run(function, param_map={
+    'groupId': 'group_id'
+})
 ```
-
-Jobs run in this way will be:
-- removed from the jobs table and the queue object when complete (regardless of pass or fail)
-- if failed, added to the failed jobs table along with the exception and a timestamp
-
 
 Additionally, you can specify a `cache_lock_uid`
 This can be either a str or a list of strings.
@@ -66,26 +69,22 @@ public function uniqueId(): string
 
 
 # Python
-job.run(function_name, cache_lock_uid = ['$param1', '-', '$param2'])
+job.run(function_name, 
+    param_map = {
+        'param1': 'param1',
+        'param2': param2'
+    } 
+    cache_lock_uid = ['$param1', '-', '$param2'])
 
 ## $param1 and $param2 will be swapped in with the cooresponding value.
 
 ```
 
-
-
-
-### Managing Jobs Manually
-For some reason, you may want to manage the job state yourself. (bypassing the run function above)
-
+To use cache locks, you must specify the database as your cache for queue.  You can do this as so:
 ```
-## Job proccessing  (When you have unique jobs happening on the queue)
-job.release_lock(cache_uid) # Takes a string of the uid used in the laravel job
-
-
-## Job failed
-job.fail(exception) # Takes a string of the exception message, and fails the job. (both in the db and the queue)
-
-## Job success
-job.complete()  # Removes from job table and queue object
+public function uniqueVia(): Repository
+    {
+        return Cache::driver('database');
+    }
 ```
+

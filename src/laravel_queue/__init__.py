@@ -36,7 +36,6 @@ class Job:
         raw_record = record
         payload = json.loads(record[1])
         command = cls.__php_serialized_to_dict(payload['data']['command'])
-        params = cls.__get_params_from_command(payload['data']['commandName'], command)
         job = cls(
             id=record[0],
             uuid=payload['uuid'],
@@ -51,8 +50,7 @@ class Job:
             command=command,
             existing_job=True,
             raw_record=raw_record,
-            queue=queue,
-            params=params
+            queue=queue
         )
         return job
     
@@ -72,13 +70,13 @@ class Job:
 
         return command_dict_formatted
     
-    @classmethod
-    def __get_params_from_command(cls, command_name:str, command: dict) -> dict:
+    def __get_params_from_command(self, param_map:dict) -> dict:
         params = {}
-        for key in command:
-            if command_name in key:
-                param = key.replace(command_name, '')
-                params[param] = command[key]
+        for map_key in param_map:
+            for command_key in self.command:
+                if map_key in command_key:
+                    params[param_map[map_key]] = self.command[command_key]
+        self.params = params
         return params
 
     def __get_cache_uid_from_config(self, cache_lock_uid: list) -> str:
@@ -88,6 +86,8 @@ class Job:
             cache_uid = str(self.command_name.split('\\')[-1]) 
             for var in cache_lock_uid:
                 if var.startswith('$'):
+                    if not var[1:] in params:
+                        raise ValueError('Variable {} not found in the job parameters'.format(var))
                     value = params[var[1:]]
                     if not value is None:
                         cache_uid = cache_uid + str(value)
@@ -96,27 +96,32 @@ class Job:
         return cache_uid
     
     def run(self, 
-            function:any, 
-            cache_lock_uid = None) -> bool:
+            function:any,
+            param_map: dict = None, 
+            cache_lock_uid:str|list = None) -> bool:
         '''
             Runs the job
             function: any, the function to run
-            *args: any, the arguments to pass to the function
-            **kwargs: any, the keyword arguments to pass to the function
+            param_map: dict, a map of the parameters to pass to the function
+            cache_lock_uid: str, the cache lock uid to use for the job
 
             Returns True if the job is successful, False if the job fails
             On fail, fails the job.
-        '''  
-        self.release_lock(cache_lock_uid)
+        ''' 
+        params = {}
+        if param_map:
+            params = self.__get_params_from_command(param_map)
+
+        self.__release_lock(cache_lock_uid)
         try:
-            function(**self.params)
-            self.complete()
+            function(**params)
+            self.__complete()
             return True
         except Exception as e:
-            self.fail(str(e))
+            self.__fail(str(e))
             return False
             
-    def release_lock(self, cache_lock_uid: str | list = None):
+    def __release_lock(self, cache_lock_uid: str | list = None):
         '''
             Releases the lock on the job
 
@@ -134,7 +139,7 @@ class Job:
         cursor.close()   
 
 
-    def fail(self, exception: str):
+    def __fail(self, exception: str):
         '''
             Fails the job, moving the record to the failed_jobs table and completing the job
 
@@ -154,9 +159,9 @@ class Job:
         cursor.execute(insert)
         connection.commit()
         cursor.close()
-        self.complete()
+        self.__complete()
 
-    def complete(self):
+    def __complete(self):
         '''
             Completes the job
             Removes the job from the jobs table and the queue object
