@@ -11,7 +11,7 @@ class Job:
     '''
         Job class to represent a job in the database queue
     '''
-    id: int 
+    id: int
     uuid: UUID = uuid4()
     display_name: str = ''
     job: str = ''
@@ -27,7 +27,7 @@ class Job:
     raw_record: dict = None
     queue: any = None
     params: dict = None
-    
+
     @classmethod
     def from_psycopg2(cls, record, queue=None, args_map=None, ):
         '''
@@ -53,10 +53,11 @@ class Job:
             queue=queue
         )
         return job
-    
+
     @classmethod
     def __php_serialized_to_dict(cls, command: str) -> dict:
-        command = phpserialize.loads(command.encode('utf-8'), object_hook=phpserialize.phpobject)
+        command = phpserialize.loads(command.encode(
+            'utf-8'), object_hook=phpserialize.phpobject)
         command_dict = command._asdict()
         command_dict_formatted = {}
         for key in command_dict:
@@ -69,8 +70,8 @@ class Job:
             command_dict_formatted[key] = val
 
         return command_dict_formatted
-    
-    def __get_params_from_command(self, param_map:dict) -> dict:
+
+    def __get_params_from_command(self, param_map: dict) -> dict:
         params = {}
         for map_key in param_map:
             for command_key in self.command:
@@ -81,46 +82,57 @@ class Job:
 
     def __get_cache_uid_from_config(self, cache_lock_uid: list) -> str:
         params = self.params
-        cache_uid = None  
+        cache_uid = None
         if cache_lock_uid:
-            cache_uid = str(self.command_name.split('\\')[-1]) 
+            cache_uid = str(self.command_name.split('\\')[-1])
             for var in cache_lock_uid:
                 if var.startswith('$'):
                     if not var[1:] in params:
-                        raise ValueError('Variable {} not found in the job parameters'.format(var))
+                        raise ValueError(
+                            'Variable {} not found in the job parameters'.format(var))
                     value = params[var[1:]]
                     if not value is None:
                         cache_uid = cache_uid + str(value)
                 else:
                     cache_uid = cache_uid + var
         return cache_uid
-    
-    def run(self, 
-            function:any,
-            param_map: dict = None, 
-            cache_lock_uid:str|list = None) -> bool:
+
+    def run(self,
+            function: any,
+            param_map: dict = {},
+            cache_lock_uid: str | list = None,
+            unique_until_processing: bool = False) -> bool:
         '''
             Runs the job
             function: any, the function to run
             param_map: dict, a map of the parameters to pass to the function
             cache_lock_uid: str, the cache lock uid to use for the job
+            unique_until_processing: bool, 
+                False will release the cache lock after job completion. True will release at start of job processing.
 
             Returns True if the job is successful, False if the job fails
             On fail, fails the job.
-        ''' 
-        params = {}
-        if param_map:
-            params = self.__get_params_from_command(param_map)
+        '''
+        params = self.__get_params_from_command(param_map)
 
-        self.__release_lock(cache_lock_uid)
+        if unique_until_processing:
+            self.__release_lock(cache_lock_uid)
+
         try:
             function(**params)
-            self.__complete()
+            result = True
+            self.__complete(cache_lock_uid=cache_lock_uid)
             return True
         except Exception as e:
             self.__fail(str(e))
-            return False
-            
+            result = False
+
+        if not unique_until_processing:
+            self.__release_lock(cache_lock_uid)
+
+        self.__complete()
+        return result
+
     def __release_lock(self, cache_lock_uid: str | list = None):
         '''
             Releases the lock on the job
@@ -130,14 +142,14 @@ class Job:
             return
         if isinstance(cache_lock_uid, list):
             cache_lock_uid = self.__get_cache_uid_from_config(cache_lock_uid)
-        
+
         connection = self.queue.connection
         cursor = connection.cursor()
-        delete = "delete from {} where key like '%{}'".format(self.queue.cache_table, cache_lock_uid)
+        delete = "delete from {} where key like '%{}'".format(
+            self.queue.cache_table, cache_lock_uid)
         cursor.execute(delete)
         connection.commit()
-        cursor.close()   
-
+        cursor.close()
 
     def __fail(self, exception: str):
         '''
@@ -150,38 +162,37 @@ class Job:
         exception = exception.replace("'", "''")
         insert = "INSERT INTO {} (connection, queue, payload, exception, failed_at) VALUES ('{}', '{}', '{}', '{}', '{}')".format(
             self.queue.failed_jobs_table,
-            'database', 
-            self.queue.queue, 
-            self.raw_record[1], 
-            exception, 
+            'database',
+            self.queue.queue,
+            self.raw_record[1],
+            exception,
             datetime.now().isoformat()
         )
         cursor.execute(insert)
         connection.commit()
         cursor.close()
-        self.__complete()
 
     def __complete(self):
         '''
             Completes the job
-            Removes the job from the jobs table and the queue object
+            Removes the job from the jobs table and updates the queue object
         '''
+
         connection = self.queue.connection
         cursor = connection.cursor()
-        drop = "DELETE FROM {} WHERE id = {}".format(self.queue.jobs_table, self.id)
+        drop = "DELETE FROM {} WHERE id = {}".format(
+            self.queue.jobs_table, self.id)
         cursor.execute(drop)
         connection.commit()
         cursor.close()
-    
-        self.queue.jobs.remove(self) 
-    
 
+        self.queue.read()
 
 
 class Queue:
-    def __init__(self, connection: any, 
-                 queue: str = 'python', 
-                 jobs_table: str = 'jobs.jobs', 
+    def __init__(self, connection: any,
+                 queue: str = 'python',
+                 jobs_table: str = 'jobs.jobs',
                  failed_jobs_table: str = 'jobs.failed_jobs',
                  cache_table: str = 'jobs.cache_locks'):
         '''
@@ -197,6 +208,7 @@ class Queue:
         self.failed_jobs_table = failed_jobs_table
         self.cache_table = cache_table
         self.jobs = []
+        self.read()
 
     def read(self) -> list:
         '''
@@ -204,13 +216,17 @@ class Queue:
             returns a list of jobs
         '''
         cursor = self.connection.cursor()
-        select = "SELECT id, payload FROM {} WHERE queue = '{}'".format(self.jobs_table, self.queue)
+        select = "SELECT id, payload FROM {} WHERE queue = '{}'".format(
+            self.jobs_table, self.queue)
         cursor.execute(select)
         records = cursor.fetchall()
         cursor.close()
+        jobs = []
         if records:
-            self.jobs = [Job.from_psycopg2(record, queue=self) for record in records]
-        return self.jobs
+            jobs = [Job.from_psycopg2(record, queue=self)
+                    for record in records]
+        self.jobs = jobs
+        return jobs
 
     def dispatch(self, job: Job):
         '''
@@ -218,19 +234,16 @@ class Queue:
             @todo: Implement the dispatch method
         '''
         if job.__existing_job:
-            raise ValueError('Job already exists in the database')  
+            raise ValueError('Job already exists in the database')
         warnings.warn(
             'The dispatch method is not yet implemented. The job will not be dispatched to the queue.',
             UserWarning
         )
 
-
-
     def __connect(self, connection: any) -> any:
         if not isinstance(connection, str):
             connection = connection.url.render_as_string(hide_password=False)
         return self.__connect_with_psycopg2(connection)
-        
 
     def __connect_with_psycopg2(self, connection_string: str):
         try:
@@ -241,5 +254,5 @@ class Queue:
             connection = psycopg2.connect(connection_string)
             return connection
         except:
-            raise ValueError('Invalid connection string. Must be in the format: postgresql://user:password@host:5432/db')
-    
+            raise ValueError(
+                'Invalid connection string. Must be in the format: postgresql://user:password@host:5432/db')

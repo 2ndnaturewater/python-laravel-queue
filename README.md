@@ -16,26 +16,32 @@ queue = Queue(connection_string)
 ```
 
 #### Queue Args:
+
     connection: str or sqlalchemy.engine.base.Engine
     queue: str, default 'python', the queue name in the database
     jobs_table: str, default 'jobs.jobs', the table name for the jobs
     failed_jobs_table: str, default 'jobs.failed_jobs', the table name for the failed jobs
 
-
 ### Read Jobs from Queue
+
 ```
-queue.read()  ## List of jobs returned, or:
 jobs = queue.jobs  ## List of jobs in queue object
 ```
 
 ### Running Jobs
+
 ```
-for job in queue.jobs:
-    job.run(function)  ## run any function
+while queue.jobs:
+    jobs = queue.jobs
+    for job in jobs:
+        job.run(function) ## run any function
 ```
+
 function can be any function to run for this job
+Using the while loop allows any new jobs placed on the queue while processing to be carried out next.
 
 #### Passing Params
+
 To pass params in laravel to the python function, specify a `param_map` in the run function.
 
 ```
@@ -69,18 +75,19 @@ public function uniqueId(): string
 
 
 # Python
-job.run(function_name, 
+job.run(function_name,
     param_map = {
         'param1': 'param1',
         'param2': param2'
-    } 
+    }
     cache_lock_uid = ['$param1', '-', '$param2'])
 
 ## $param1 and $param2 will be swapped in with the cooresponding value.
 
 ```
 
-To use cache locks, you must specify the database as your cache for queue.  You can do this as so:
+To use cache locks, you must specify the database as your cache for queue. You can do this as so:
+
 ```
 public function uniqueVia(): Repository
     {
@@ -88,3 +95,6 @@ public function uniqueVia(): Repository
     }
 ```
 
+If using the `ShouldBeUniqueUntilProcessing` property, you must specify that in you job runner as well.
+By default (`unique_until_processing=False`), the cache lock will be relased after processing, emulating the `ShouldBeUnique` laravel property.
+Setting this `unique_until_processing=True` will relase this lock at the start of the job, like `ShouldBeUniqueUntilProcessing`
