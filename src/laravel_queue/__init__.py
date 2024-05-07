@@ -121,7 +121,7 @@ class Job:
         try:
             function(**params)
             result = True
-            self.__complete(cache_lock_uid=cache_lock_uid)
+            self.__complete()
             return True
         except Exception as e:
             self.__fail(str(e))
